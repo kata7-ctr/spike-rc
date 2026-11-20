@@ -23,6 +23,7 @@
   .btn.held { transform: translateY(4px); box-shadow: 0 2px 0 #1e293b; background: #f59e0b; }
   .btn:disabled { opacity: .35; }
   .stop { background: #dc2626; font-size: 24px; }
+  .btn.small { font-size: 34px; background: #3f4c63; }
   .blank { visibility: hidden; }
   .settings { background: #1e293b; border-radius: 16px; padding: 14px 16px; width: 320px; font-size: 16px; }
   .settings h2 { font-size: 17px; margin: 0 0 10px; }
@@ -43,20 +44,21 @@
   <h1>🚗 SPIKE 리모컨 <small>공식 펌웨어용 · 시험판</small></h1>
   <span class="status" id="status">연결 안 됨</span>
   <button class="topbtn" id="connect">① 허브 연결</button>
+  <button class="topbtn" id="detect" disabled>🔍 모터 찾기</button>
   <button class="topbtn" id="prepare" disabled>② 허브 준비</button>
 </header>
 
 <main>
   <div class="pad">
-    <div class="blank"></div>
+    <button class="btn small" data-dir="Q" disabled>↖</button>
     <button class="btn" data-dir="F" disabled>▲</button>
-    <div class="blank"></div>
+    <button class="btn small" data-dir="E" disabled>↗</button>
     <button class="btn" data-dir="L" disabled>◀</button>
     <button class="btn stop" data-dir="S" disabled>멈춤</button>
     <button class="btn" data-dir="R" disabled>▶</button>
-    <div class="blank"></div>
+    <button class="btn small" data-dir="Z" disabled>↙</button>
     <button class="btn" data-dir="B" disabled>▼</button>
-    <div class="blank"></div>
+    <button class="btn small" data-dir="X" disabled>↘</button>
   </div>
 
   <div class="settings">
@@ -70,9 +72,9 @@
     <div>속도: <b id="speedLabel">50%</b>
       <input type="range" id="speed" min="20" max="100" step="10" value="50"></div>
     <div class="row">사용할 프로그램 칸
-      <span><input type="number" id="slot" min="0" max="15" value="15" style="width:60px"> ~ <b id="slotEnd">19</b>번</span></div>
+      <span><input type="number" id="slot" min="0" max="11" value="11" style="width:60px"> ~ <b id="slotEnd">19</b>번</span></div>
     <p class="changed" id="changed">설정이 바뀌었어요. ② 허브 준비를 다시 눌러 주세요.</p>
-    <p class="note">※ 허브의 프로그램 칸 5개(기본 15~19번)를 리모컨용으로 덮어써요. 그 칸에 학생 프로그램이 있다면 다른 번호로 바꿔 주세요.<br>
+    <p class="note">※ 허브의 프로그램 칸 9개(기본 11~19번)를 리모컨용으로 덮어써요. 그 칸에 학생 프로그램이 있다면 다른 번호로 바꿔 주세요.<br>
     ※ 안전장치: 버튼을 계속 누르고 있어도 한 번에 최대 5초까지만 움직이고, 계속 누르면 다시 이어서 움직여요.</p>
   </div>
 </main>
@@ -176,7 +178,12 @@ function onMessage(m) {
   const type = m[0];
   if (type === 0x21) { // 허브 콘솔 출력 (오류 메시지 포함)
     const end = m.indexOf(0, 1);
-    log("허브: " + new TextDecoder().decode(new Uint8Array(m.slice(1, end < 0 ? m.length : end))));
+    const text = new TextDecoder().decode(new Uint8Array(m.slice(1, end < 0 ? m.length : end)));
+    consoleText += text;
+    log("허브: " + text.trim());
+    const miss = text.match(/NOMOTOR ([A-F])/);
+    if (miss) log("👉 " + miss[1] + "포트에 모터가 없어요! 🔍 모터 찾기를 눌러 주세요.");
+    if (/OSError/.test(text)) log("👉 OSError: 고른 포트에 모터가 없거나 선이 헐거울 수 있어요. 🔍 모터 찾기를 눌러 주세요.");
   } else if (type === 0x20) {
     running = m[1] === 0x00;
   }
@@ -199,7 +206,7 @@ $("connect").onclick = async () => {
   try {
     device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
     device.addEventListener("gattserverdisconnected", () => {
-      rx = tx = null; prepared = false; enablePad(false); $("prepare").disabled = true;
+      rx = tx = null; prepared = false; enablePad(false); $("prepare").disabled = true; $("detect").disabled = true;
       setStatus("", "연결 끊김"); log("연결이 끊겼어요.");
     });
     setStatus("busy", "연결 중…");
@@ -215,8 +222,8 @@ $("connect").onclick = async () => {
     maxPacket = rd16(info, 9); maxChunk = rd16(info, 13);
     log("연결 성공: " + (device.name || "허브") + " / 펌웨어 " + fw + " / 패킷 " + maxPacket + " / 청크 " + maxChunk);
     setStatus("on", "연결됨");
-    $("prepare").disabled = false;
-    log("이제 ② 허브 준비를 눌러 주세요.");
+    $("prepare").disabled = false; $("detect").disabled = false;
+    log("이제 🔍 모터 찾기를 누르고, 그다음 ② 허브 준비를 눌러 주세요.");
   } catch (e) {
     setStatus("", "연결 안 됨"); log("연결 실패: " + e.message);
   }
@@ -227,7 +234,7 @@ function settings() {
   return {
     lp: $("lport").value, rp: $("rport").value,
     fl: $("flipL").checked ? -1 : 1, fr: $("flipR").checked ? -1 : 1,
-    speed: +$("speed").value, slot: Math.max(0, Math.min(15, +$("slot").value || 0))
+    speed: +$("speed").value, slot: Math.max(0, Math.min(11, +$("slot").value || 0))
   };
 }
 function moveProgram(s, lm, rm) {
@@ -236,19 +243,50 @@ function moveProgram(s, lm, rm) {
   return [
     "import motor, time",
     "from hub import port",
-    `motor.run(port.${s.lp}, ${vl})`,
-    `motor.run(port.${s.rp}, ${vr})`,
+    "def go(p, name, v):",
+    "    try:",
+    "        motor.run(p, v)",
+    "    except OSError:",
+    "        print('NOMOTOR ' + name)",
+    `go(port.${s.lp}, '${s.lp}', ${vl})`,
+    `go(port.${s.rp}, '${s.rp}', ${vr})`,
     "time.sleep_ms(5000)",
-    `motor.stop(port.${s.lp})`,
-    `motor.stop(port.${s.rp})`, ""
+    "for p in (port." + s.lp + ", port." + s.rp + "):",
+    "    try:",
+    "        motor.stop(p)",
+    "    except OSError:",
+    "        pass", ""
   ].join("\n");
 }
 function stopProgram(s) {
   return ["import motor", "from hub import port",
-    `motor.stop(port.${s.lp})`, `motor.stop(port.${s.rp})`, ""].join("\n");
+    "for p in (port." + s.lp + ", port." + s.rp + "):",
+    "    try:",
+    "        motor.stop(p)",
+    "    except OSError:",
+    "        pass", ""].join("\n");
 }
-const DIRS = { F: [1, 1, 0], B: [-1, -1, 1], L: [-0.6, 0.6, 2], R: [0.6, -0.6, 3] }; // [왼, 오, 칸 순서]
-const STOP_INDEX = 4;
+// 모든 포트를 하나씩 확인해서 모터가 있는 곳을 알려 주는 프로그램
+const DETECT_PROGRAM = [
+  "import motor",
+  "from hub import port",
+  "found = ''",
+  "for name in 'ABCDEF':",
+  "    try:",
+  "        motor.absolute_position(getattr(port, name))",
+  "        found += name",
+  "    except Exception:",
+  "        pass",
+  "print('FOUND:' + found + ':END')", ""
+].join("\n");
+let consoleText = "";
+// [왼쪽 바퀴, 오른쪽 바퀴, 칸 순서]  — 휘어지기: 바깥 바퀴는 빠르게, 안쪽 바퀴는 느리게
+const DIRS = {
+  F: [1, 1, 0], B: [-1, -1, 1], L: [-0.6, 0.6, 2], R: [0.6, -0.6, 3],
+  Q: [0.3, 1, 4], E: [1, 0.3, 5], Z: [-0.3, -1, 6], X: [-1, -0.3, 7]
+};
+const DIR_NAME = { F: "앞", B: "뒤", L: "왼쪽 돌기", R: "오른쪽 돌기", Q: "앞-왼쪽", E: "앞-오른쪽", Z: "뒤-왼쪽", X: "뒤-오른쪽" };
+const STOP_INDEX = 8;
 
 function nameBytes(name, fixed) {
   const b = Array.from(new TextEncoder().encode(name)); b.push(0);
@@ -283,7 +321,7 @@ $("prepare").onclick = async () => {
     await flow(0x01, s.slot).catch(() => {});
     for (const [d, [lm, rm, idx]] of Object.entries(DIRS)) {
       await uploadFile(s.slot + idx, moveProgram(s, lm, rm));
-      log((s.slot + idx) + "번 칸: " + ({F:"앞",B:"뒤",L:"왼쪽",R:"오른쪽"})[d] + " 저장 완료");
+      log((s.slot + idx) + "번 칸: " + DIR_NAME[d] + " 저장 완료");
     }
     await uploadFile(s.slot + STOP_INDEX, stopProgram(s));
     log((s.slot + STOP_INDEX) + "번 칸: 멈춤 저장 완료");
@@ -297,6 +335,44 @@ $("prepare").onclick = async () => {
   $("prepare").disabled = false;
 };
 let usedSlot = 15;
+
+// ====== 🔍 모터 찾기 ======
+$("detect").onclick = async () => {
+  const s = settings();
+  $("detect").disabled = true; $("prepare").disabled = true; enablePad(false); prepared = false;
+  setStatus("busy", "모터 찾는 중…");
+  try {
+    await flow(0x01, s.slot).catch(() => {});
+    const slot = s.slot + STOP_INDEX; // 멈춤 칸을 잠깐 빌려 써요 (② 허브 준비 때 다시 저장돼요)
+    await uploadFile(slot, DETECT_PROGRAM);
+    consoleText = "";
+    await flow(0x00, slot);
+    let found = null;
+    for (let i = 0; i < 30 && found === null; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      const m = consoleText.match(/FOUND:([A-F]*):END/);
+      if (m) found = m[1];
+    }
+    if (found === null) {
+      log("모터 찾기 결과를 받지 못했어요. 기록 창의 '허브:' 글자를 캡처해 주세요.");
+    } else if (found.length === 0) {
+      log("👉 모터를 하나도 못 찾았어요. 모터 선이 허브에 끝까지 꽂혀 있는지 확인해 주세요.");
+    } else {
+      log("👉 모터가 꽂힌 포트: " + found.split("").join(", "));
+      if (found.length >= 2) {
+        $("lport").value = found[0]; $("rport").value = found[1];
+        log("설정을 왼쪽=" + found[0] + ", 오른쪽=" + found[1] + "(으)로 바꿨어요. 실제와 반대면 바꿔 주세요.");
+      } else {
+        log("모터가 1개만 보여요. 바퀴 모터 2개가 모두 꽂혀 있는지 확인해 주세요.");
+      }
+      log("이제 ② 허브 준비를 눌러 주세요.");
+    }
+    setStatus("on", "연결됨");
+  } catch (e) {
+    setStatus("on", "연결됨"); log("모터 찾기 실패: " + e.message);
+  }
+  $("detect").disabled = false; $("prepare").disabled = false;
+};
 
 // ====== 프로그램 시작/멈춤 ======
 async function flow(action, slot) {
@@ -317,34 +393,62 @@ async function runSlot(slot) {
   log(slot + "번 칸 실행 (" + Math.round(performance.now() - t0) + "ms)");
 }
 
-let held = null, repeat = null;
-function press(btn) {
+// 가장 최근 명령만 실행해요 (빠르게 바꿔 눌러도 밀리지 않게)
+let desired = null, working = false;
+function want(slot) { desired = slot; kick(); }
+async function kick() {
+  if (working) return;
+  working = true;
+  while (desired !== null) {
+    const s = desired; desired = null;
+    try { await runSlot(s); } catch (e) { log("오류: " + e.message); }
+  }
+  working = false;
+}
+
+// 지금 눌려 있는 버튼들 → 하나의 동작으로 합치기
+// 예) ▲ 누른 채 ◀ 누르기 = 앞-왼쪽(↖)
+const pressed = new Map(); // pointerId → 버튼
+let currentDir = null, repeat = null;
+function combinedDir() {
+  const ds = new Set([...pressed.values()].map(b => b.dataset.dir));
+  if (ds.has("S")) return "S";
+  for (const d of ["Q", "E", "Z", "X"]) if (ds.has(d)) return d;
+  const f = ds.has("F"), b = ds.has("B"), l = ds.has("L"), r = ds.has("R");
+  if (f && !b) return l && !r ? "Q" : r && !l ? "E" : "F";
+  if (b && !f) return l && !r ? "Z" : r && !l ? "X" : "B";
+  if (l && !r) return "L";
+  if (r && !l) return "R";
+  return null;
+}
+function update() {
   if (!prepared) return;
-  const d = btn.dataset.dir;
-  release(false);
-  if (d === "S") { enqueue(() => runSlot(usedSlot + STOP_INDEX)); return; }
-  held = btn; btn.classList.add("held");
-  const slot = usedSlot + DIRS[d][2];
-  enqueue(() => runSlot(slot));
-  repeat = setInterval(() => enqueue(() => runSlot(slot)), 4500); // 5초 안전장치 전에 다시 실행
-}
-function release(sendStop = true) {
-  if (!held) return;
-  held.classList.remove("held"); held = null;
+  document.querySelectorAll(".btn").forEach(b => b.classList.toggle("held", [...pressed.values()].includes(b)));
+  const d = combinedDir();
+  if (d === currentDir) return;
+  currentDir = d;
   clearInterval(repeat);
-  if (sendStop) enqueue(() => runSlot(usedSlot + STOP_INDEX));
+  if (d === null || d === "S") { want(usedSlot + STOP_INDEX); return; }
+  const slot = usedSlot + DIRS[d][2];
+  want(slot);
+  repeat = setInterval(() => want(slot), 4500); // 5초 안전장치 전에 다시 실행
 }
+function releaseAll() { pressed.clear(); update(); }
 document.querySelectorAll(".btn").forEach(btn => {
-  btn.addEventListener("pointerdown", e => { e.preventDefault(); btn.setPointerCapture(e.pointerId); press(btn); });
-  btn.addEventListener("pointerup", () => release());
-  btn.addEventListener("pointercancel", () => release());
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault(); btn.setPointerCapture(e.pointerId);
+    pressed.set(e.pointerId, btn); update();
+  });
+  const up = e => { pressed.delete(e.pointerId); update(); };
+  btn.addEventListener("pointerup", up);
+  btn.addEventListener("pointercancel", up);
   btn.addEventListener("contextmenu", e => e.preventDefault());
 });
-document.addEventListener("visibilitychange", () => { if (document.hidden) release(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
 
 // 설정 표시
 $("speed").oninput = e => { $("speedLabel").textContent = e.target.value + "%"; markChanged(); };
-$("slot").oninput = () => { $("slotEnd").textContent = settings().slot + 4; markChanged(); };
+$("slot").oninput = () => { $("slotEnd").textContent = settings().slot + STOP_INDEX; markChanged(); };
 ["lport", "rport", "flipL", "flipR"].forEach(id => $(id).onchange = markChanged);
 function markChanged() { if (prepared) $("changed").style.display = "block"; }
 </script>
