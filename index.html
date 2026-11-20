@@ -23,7 +23,8 @@
   .btn.held { transform: translateY(4px); box-shadow: 0 2px 0 #1e293b; background: #f59e0b; }
   .btn:disabled { opacity: .35; }
   .stop { background: #dc2626; font-size: 24px; }
-  .btn.small { font-size: 34px; background: #3f4c63; }
+  .meter { grid-column: 1 / 4; text-align: center; font-size: 22px; padding-top: 4px; }
+  #meterBar { font-family: monospace; color: #fbbf24; letter-spacing: 2px; }
   .blank { visibility: hidden; }
   .settings { background: #1e293b; border-radius: 16px; padding: 14px 16px; width: 320px; font-size: 16px; }
   .settings h2 { font-size: 17px; margin: 0 0 10px; }
@@ -50,15 +51,16 @@
 
 <main>
   <div class="pad">
-    <button class="btn small" data-dir="Q" disabled>↖</button>
+    <div class="blank"></div>
     <button class="btn" data-dir="F" disabled>▲</button>
-    <button class="btn small" data-dir="E" disabled>↗</button>
+    <div class="blank"></div>
     <button class="btn" data-dir="L" disabled>◀</button>
     <button class="btn stop" data-dir="S" disabled>멈춤</button>
     <button class="btn" data-dir="R" disabled>▶</button>
-    <button class="btn small" data-dir="Z" disabled>↙</button>
+    <div class="blank"></div>
     <button class="btn" data-dir="B" disabled>▼</button>
-    <button class="btn small" data-dir="X" disabled>↘</button>
+    <div class="blank"></div>
+    <div class="meter" id="meter">핸들: <span id="meterBar">· · · ● · · ·</span></div>
   </div>
 
   <div class="settings">
@@ -72,9 +74,9 @@
     <div>속도: <b id="speedLabel">50%</b>
       <input type="range" id="speed" min="20" max="100" step="10" value="50"></div>
     <div class="row">사용할 프로그램 칸
-      <span><input type="number" id="slot" min="0" max="11" value="11" style="width:60px"> ~ <b id="slotEnd">19</b>번</span></div>
+      <span><input type="number" id="slot" min="0" max="3" value="3" style="width:60px"> ~ <b id="slotEnd">19</b>번</span></div>
     <p class="changed" id="changed">설정이 바뀌었어요. ② 허브 준비를 다시 눌러 주세요.</p>
-    <p class="note">※ 허브의 프로그램 칸 9개(기본 11~19번)를 리모컨용으로 덮어써요. 그 칸에 학생 프로그램이 있다면 다른 번호로 바꿔 주세요.<br>
+    <p class="note">※ 허브의 프로그램 칸 17개(기본 3~19번)를 리모컨용으로 덮어써요. 그 칸에 학생 프로그램이 있다면 다른 번호로 바꿔 주세요.<br>
     ※ 안전장치: 버튼을 계속 누르고 있어도 한 번에 최대 5초까지만 움직이고, 계속 누르면 다시 이어서 움직여요.</p>
   </div>
 </main>
@@ -234,7 +236,7 @@ function settings() {
   return {
     lp: $("lport").value, rp: $("rport").value,
     fl: $("flipL").checked ? -1 : 1, fr: $("flipR").checked ? -1 : 1,
-    speed: +$("speed").value, slot: Math.max(0, Math.min(11, +$("slot").value || 0))
+    speed: +$("speed").value, slot: Math.max(0, Math.min(20 - SLOT_COUNT, +$("slot").value || 0))
   };
 }
 function moveProgram(s, lm, rm) {
@@ -280,13 +282,26 @@ const DETECT_PROGRAM = [
   "print('FOUND:' + found + ':END')", ""
 ].join("\n");
 let consoleText = "";
-// [왼쪽 바퀴, 오른쪽 바퀴, 칸 순서]  — 휘어지기: 바깥 바퀴는 빠르게, 안쪽 바퀴는 느리게
-const DIRS = {
-  F: [1, 1, 0], B: [-1, -1, 1], L: [-0.6, 0.6, 2], R: [0.6, -0.6, 3],
-  Q: [0.3, 1, 4], E: [1, 0.3, 5], Z: [-0.3, -1, 6], X: [-1, -0.3, 7]
-};
-const DIR_NAME = { F: "앞", B: "뒤", L: "왼쪽 돌기", R: "오른쪽 돌기", Q: "앞-왼쪽", E: "앞-오른쪽", Z: "뒤-왼쪽", X: "뒤-오른쪽" };
-const STOP_INDEX = 8;
+// [왼쪽 바퀴, 오른쪽 바퀴, 칸 순서]
+// 휘어지기: 바깥 바퀴는 그대로, 안쪽 바퀴를 단계마다 더 느리게 (1단계 살짝 → 3단계 크게)
+const INNER = [0.7, 0.4, 0.1];
+const DIRS = { F: [1, 1, 0], B: [-1, -1, 1], L: [-0.6, 0.6, 2], R: [0.6, -0.6, 3] };
+const DIR_NAME = { F: "앞", B: "뒤", L: "왼쪽 돌기", R: "오른쪽 돌기" };
+let idx = 4;
+for (const base of ["F", "B"]) {
+  const sgn = base === "F" ? 1 : -1;
+  for (const side of ["L", "R"]) {
+    INNER.forEach((k, i) => {
+      const key = base + side + (i + 1);           // 예) FR2 = 앞으로 가며 오른쪽 2단계
+      DIRS[key] = side === "L" ? [sgn * k, sgn, idx] : [sgn, sgn * k, idx];
+      DIR_NAME[key] = (base === "F" ? "앞" : "뒤") + "-" + (side === "L" ? "왼쪽" : "오른쪽") + " " + (i + 1) + "단계";
+      idx++;
+    });
+  }
+}
+const STOP_INDEX = idx;          // 16
+const SLOT_COUNT = STOP_INDEX + 1; // 17칸
+const STEER_STEP_MS = 350;       // 이 시간마다 한 단계씩 더 꺾여요
 
 function nameBytes(name, fixed) {
   const b = Array.from(new TextEncoder().encode(name)); b.push(0);
@@ -407,24 +422,41 @@ async function kick() {
 }
 
 // 지금 눌려 있는 버튼들 → 하나의 동작으로 합치기
-// 예) ▲ 누른 채 ◀ 누르기 = 앞-왼쪽(↖)
+// ▲(또는 ▼)를 누른 채 ◀/▶를 누르면, 누르고 있는 시간만큼 점점 더 크게 휘어져요
 const pressed = new Map(); // pointerId → 버튼
-let currentDir = null, repeat = null;
-function combinedDir() {
+let currentDir = null, repeat = null, steerStart = null, steerTimer = null;
+function combinedDir(now = performance.now()) {
   const ds = new Set([...pressed.values()].map(b => b.dataset.dir));
-  if (ds.has("S")) return "S";
-  for (const d of ["Q", "E", "Z", "X"]) if (ds.has(d)) return d;
-  const f = ds.has("F"), b = ds.has("B"), l = ds.has("L"), r = ds.has("R");
-  if (f && !b) return l && !r ? "Q" : r && !l ? "E" : "F";
-  if (b && !f) return l && !r ? "Z" : r && !l ? "X" : "B";
-  if (l && !r) return "L";
-  if (r && !l) return "R";
+  if (ds.has("S")) { steerStart = null; return "S"; }
+  const f = ds.has("F") && !ds.has("B"), b = ds.has("B") && !ds.has("F");
+  const side = ds.has("L") && !ds.has("R") ? "L" : ds.has("R") && !ds.has("L") ? "R" : null;
+  if ((f || b) && side) {
+    if (steerStart === null) steerStart = now;
+    const level = Math.min(3, 1 + Math.floor((now - steerStart) / STEER_STEP_MS));
+    return (f ? "F" : "B") + side + level;
+  }
+  steerStart = null;
+  if (f) return "F";
+  if (b) return "B";
+  if (side) return side;   // ◀ ▶만 누르면 제자리 돌기
   return null;
+}
+function showMeter(d) {
+  const m = d && d.match(/^[FB]([LR])([123])$/);
+  let bar = ["·", "·", "·", "●", "·", "·", "·"];
+  if (m) { const n = +m[2]; for (let i = 1; i <= n; i++) bar[m[1] === "L" ? 3 - i : 3 + i] = m[1] === "L" ? "◀" : "▶"; }
+  else if (d === "L") bar = ["↺", "↺", "↺", "●", "·", "·", "·"];
+  else if (d === "R") bar = ["·", "·", "·", "●", "↻", "↻", "↻"];
+  $("meterBar").textContent = bar.join(" ");
 }
 function update() {
   if (!prepared) return;
   document.querySelectorAll(".btn").forEach(b => b.classList.toggle("held", [...pressed.values()].includes(b)));
   const d = combinedDir();
+  showMeter(d);
+  // 핸들을 꺾는 중이면 단계가 올라가는지 계속 확인해요
+  clearTimeout(steerTimer);
+  if (d && /^[FB][LR][12]$/.test(d)) steerTimer = setTimeout(update, 60);
   if (d === currentDir) return;
   currentDir = d;
   clearInterval(repeat);
